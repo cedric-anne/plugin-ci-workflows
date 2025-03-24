@@ -15,6 +15,10 @@ on:
       db-image:
         required: true
         type: string
+      init-script:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   ci:
@@ -46,6 +50,11 @@ jobs:
         uses: "actions/checkout@v4"
         with:
             path: "${{ inputs.plugin-key }}"
+      - name: "Execute init script"
+        if: ${{ inputs.init-script != '' }}
+        shell: "bash"
+        run: |
+          env --ignore-environment bash --noprofile --norc ${{ inputs.init-script }}
       - name: "Configure cache directories"
         # Use default `bash` shell with `github-actions-runner` user
         shell: "bash"
