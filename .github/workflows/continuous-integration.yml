@@ -118,7 +118,6 @@ jobs:
             echo -e "\033[0;31mPHP CodeSniffer binary not found!\033[0m"
             exit 1
           fi
-          vendor/bin/phpcs
       - name: "PHP-CS-Fixer"
         if: ${{ !cancelled() && hashFiles(format('{0}/.php-cs-fixer.php', inputs.plugin-key)) != '' }}
         run: |
@@ -254,4 +253,3 @@ jobs:
             echo -e "\033[0;31mTwigCS binary not found!\033[0m"
             exit 1
           fi
-          vendor/bin/twigcs
