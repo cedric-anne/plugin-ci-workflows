@@ -19,6 +19,11 @@ on:
         required: false
         type: string
         default: ""
+      extra-services:
+        description: "A list of coma separated services. Available services: openldap."
+        required: false
+        type: string
+        default: ""
 
 jobs:
   ci:
@@ -38,6 +43,15 @@ jobs:
           MYSQL_DATABASE: "glpi"
         options: >-
           --shm-size=1g
+      openldap:
+        # Workaround to only add the service if a given variable is set.
+        # See: https://github.com/actions/runner/issues/822
+        image: "${{ contains(inputs.extra-services, 'openldap') && 'osixia/openldap:latest' || '' }}"
+        env:
+          LDAP_ORGANISATION: "GLPI"
+          LDAP_DOMAIN: "glpi.org"
+          LDAP_ADMIN_USERNAME: "admin"
+          LDAP_ADMIN_PASSWORD: "admin"
     defaults:
       run:
         # By default, execute commands using the `www-data` user to prevent rights issues on GLPI generated files.
@@ -95,6 +109,14 @@ jobs:
         if: ${{ !cancelled() && hashFiles(format('{0}/package.json', inputs.plugin-key)) != '' }}
         run: |
           npm install --no-save
+      # We now need to load the ldif data in the openldap server.
+      # TODO: bake the .ldif directly in a custom image so we don't need to do this.
+      - name: "Import LDIF"
+        if: ${{ contains(inputs.extra-services, 'openldap') }}
+        run: |
+          ldapadd -x -D "cn=admin,dc=glpi,dc=org" -w admin \
+            -f ../../tests/LDAP/ldif/10-users.ldif \
+            -H ldap://openldap:389
       - name: "PHP Parallel Lint"
         run: |
           echo -e "\033[0;33mExecuting PHP Parallel Lint...\033[0m"
