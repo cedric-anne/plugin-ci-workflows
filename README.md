@@ -49,6 +49,9 @@ jobs:
 
       # Optional extra services (possible values: "openldap").
       extra-services: "openldap"
+
+      # Set to true to skip the CHANGELOG update check on pull requests.
+      skip-changelog-check: true
 ```
 
 The available `glpi-version`/`php-version` combinations corresponds to the `ghcr.io/glpi-project/githubactions-glpi-apache` images tags

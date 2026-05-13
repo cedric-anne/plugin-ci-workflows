@@ -24,6 +24,11 @@ on:
         required: false
         type: string
         default: ""
+      skip-changelog-check:
+        description: "Set to true to skip the CHANGELOG update check on pull requests."
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   ci:
@@ -137,6 +142,20 @@ jobs:
           ldapadd -x -D "cn=admin,dc=glpi,dc=org" -w admin \
             -f ../../tests/LDAP/ldif/10-users.ldif \
             -H ldap://openldap:389
+      - name: "Check CHANGELOG update"
+        if: ${{ !cancelled() && !inputs.skip-changelog-check && github.event_name == 'pull_request' && (hashFiles(format('{0}/CHANGELOG.md', inputs.plugin-key)) != '' || hashFiles(format('{0}/CHANGELOG', inputs.plugin-key)) != '') }}
+        shell: "bash"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          changed=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            | jq -r '[.[].filename] | any(test("CHANGELOG"; "i"))')
+          if [[ "$changed" != "true" ]]; then
+            echo "❌ CHANGELOG was not updated in this PR."
+            exit 1
+          fi
+          echo "✅ CHANGELOG updated."
       - name: "PHP Parallel Lint"
         run: |
           echo -e "\033[0;33mExecuting PHP Parallel Lint...\033[0m"
