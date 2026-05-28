@@ -67,6 +67,8 @@ It can be used, for instance, to install a specific PHP extension.
 
 On pull requests, the workflow checks that the `CHANGELOG` file has been updated. This check is automatically skipped for Dependabot PRs and when all changed files are in `locales/` or `.github/` (e.g. locale-update PRs). It can also be fully disabled via the `skip-changelog-check` parameter.
 
+On pull requests that modify `plugin.xml` or `<plugin-key>.xml`, the workflow also validates that all URLs declared in the file are reachable. URLs inside `<download_url>` tags that are newly introduced by the PR only produce a warning (the release archive may not be published yet), while all other invalid URLs fail the check.
+
 ## Generate CI matrix
 
 This workflow can be used to generate a matrix that contains the default PHP/SQL versions that are supported by the target GLPI version.

@@ -163,6 +163,56 @@ jobs:
             exit 1
           fi
           echo "✅ CHANGELOG updated."
+      - name: "Detect XML manifest modification"
+        id: "detect-xml-modification"
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && (hashFiles(format('{0}/plugin.xml', inputs.plugin-key)) != '' || hashFiles(format('{0}/{1}.xml', inputs.plugin-key, inputs.plugin-key)) != '') }}
+        shell: "bash"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLUGIN_KEY: ${{ inputs.plugin-key }}
+        run: |
+          pr_files=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            | jq -r '[.[].filename]')
+          if echo "$pr_files" | jq -e --arg k "$PLUGIN_KEY" '. | any(. == "plugin.xml" or . == ($k + ".xml"))' > /dev/null; then
+            echo "xml_modified=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "xml_modified=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: "Check XML URLs validity"
+        if: ${{ !cancelled() && steps.detect-xml-modification.outputs.xml_modified == 'true' }}
+        shell: "bash"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLUGIN_KEY: ${{ inputs.plugin-key }}
+        run: |
+          # URLs added in this PR inside <download_url> tags point to archives not yet published
+          new_download_urls=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            | jq -r --arg k "$PLUGIN_KEY" '[.[] | select(.filename == "plugin.xml" or .filename == ($k + ".xml")) | .patch // ""] | join("\n")' \
+            | grep '^+' | grep '<download_url>' | grep -oP 'https?://[^\s<>"]+' | sort -u)
+          echo -e "\033[0;33mChecking URLs in XML manifest files...\033[0m"
+          HAS_FAILURE='false'
+          for xml_file in "/var/www/glpi/plugins/$PLUGIN_KEY/plugin.xml" "/var/www/glpi/plugins/$PLUGIN_KEY/${PLUGIN_KEY}.xml"; do
+            [[ -f "$xml_file" ]] || continue
+            echo "Checking $(basename "$xml_file")..."
+            while IFS= read -r url; do
+              status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 --location "$url")
+              if [[ "$status" -ge 200 && "$status" -lt 400 ]]; then
+                echo "✅ $url ($status)"
+              elif echo "$new_download_urls" | grep -qxF "$url"; then
+                echo "⚠️ $url ($status, new release archive may not be published yet)"
+              else
+                echo "❌ $url ($status)"
+                HAS_FAILURE='true'
+              fi
+            done < <(grep -oP 'https?://[^\s<>"]+' "$xml_file" | sort -u)
+          done
+          if [[ "$HAS_FAILURE" == 'true' ]]; then
+            echo -e "\033[0;31mSome URLs are invalid or unreachable.\033[0m"
+            exit 1
+          fi
+          echo "✅ All URLs are valid."
       - name: "PHP Parallel Lint"
         run: |
           echo -e "\033[0;33mExecuting PHP Parallel Lint...\033[0m"
