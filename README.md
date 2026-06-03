@@ -36,10 +36,10 @@ jobs:
       plugin-key: "myplugin"
 
       # The version of GLPI on which to run the tests.
-      glpi-version: "10.0.x"
+      glpi-version: "11.0.x"
 
       # The version of PHP on which to run the tests.
-      php-version: "8.1"
+      php-version: "8.2"
 
       # The database docker image on which to run the tests.
       db-image: "mariadb:11.4"
@@ -52,12 +52,16 @@ jobs:
 
       # Set to true to skip the CHANGELOG update check on pull requests.
       skip-changelog-check: true
+
+      # Whether to enable code coverage generation (default: false).
+      code-coverage: true
 ```
 
 The available `glpi-version`/`php-version` combinations corresponds to the `ghcr.io/glpi-project/githubactions-glpi-apache` images tags
 that can be found [here](https://github.com/orgs/glpi-project/packages/container/githubactions-glpi-apache/versions?filters%5Bversion_type%5D=tagged).
 
 The `db-image` parameter is a combination of the DB server engine (`mysql`, `mariadb` or `percona`) and the server version.
+
 - MariaDB available versions are listed [here](https://github.com/orgs/glpi-project/packages/container/githubactions-mariadb/versions?filters%5Bversion_type%5D=tagged)
 - MySQL available versions are listed [here](https://github.com/orgs/glpi-project/packages/container/githubactions-mysql/versions?filters%5Bversion_type%5D=tagged).
 - Percona available versions are listed [here](https://github.com/orgs/glpi-project/packages/container/githubactions-percona/versions?filters%5Bversion_type%5D=tagged).
@@ -69,10 +73,69 @@ On pull requests, the workflow checks that the `CHANGELOG` file has been updated
 
 On pull requests that modify `plugin.xml` or `<plugin-key>.xml`, the workflow also validates that all URLs declared in the file are reachable. URLs inside `<download_url>` tags that are newly introduced by the PR only produce a warning (the release archive may not be published yet), while all other invalid URLs fail the check.
 
+## Code coverage
+
+Code coverage is automatically enabled when a `.glpi-coverage.json` configuration file is present at the root of the plugin directory.
+
+If the file is not present, or if its `enabled` field is explicitly set to `false`, code coverage steps will be skipped entirely.
+
+### `.glpi-coverage.json` format
+
+All fields are optional. Default values are shown below:
+
+```json
+{
+	"enabled": true,
+	"only_list_changed_files": true,
+	"badge": true,
+	"overall_coverage_fail_threshold": 0,
+	"file_coverage_error_min": 50,
+	"file_coverage_warning_max": 75,
+	"fail_on_negative_difference": false,
+	"retention_days": 90
+}
+```
+
+| Field                             | Default | Description                                                                                         |
+|-----------------------------------|---------|-----------------------------------------------------------------------------------------------------|
+| `enabled`                         | `true`  | Set to `false` to disable code coverage entirely.                                                   |
+| `only_list_changed_files`         | `true`  | Only list files changed in the PR in the coverage report.                                           |
+| `badge`                           | `true`  | Include a coverage badge in the report using shields.io.                                            |
+| `overall_coverage_fail_threshold` | `0`     | Fail the workflow if overall coverage is below this percentage.                                     |
+| `file_coverage_error_min`         | `50`    | Files with coverage below this percentage are marked as error (red).                                |
+| `file_coverage_warning_max`       | `75`    | Files with coverage below this percentage are marked as warning (orange). Above is success (green). |
+| `fail_on_negative_difference`     | `false` | Fail the workflow if any file coverage decreased compared to the base branch.                       |
+| `retention_days`                  | `90`    | Number of days to retain coverage artifacts for base branch comparison.                             |
+
+> **Tip:** To use as a reference without enabling coverage (e.g. for `glpi-empty`), create the file with `"enabled": false`.
+
+### IDE Integration
+
+The workflow produces a `coverage-report` artifact containing:
+
+- `clover.xml`: Use this file to import coverage into PhpStorm or other IDEs. Paths are automatically sanitized to match `plugins/<plugin-key>/`.
+- `cobertura.xml`: Used for the PR comment report.
+
+### Coverage report workflow
+
+The `coverage-report.yml` reusable workflow generates a PR comment with a coverage summary. It compares the coverage from the current PR against the base branch (using stored artifacts).
+
+```yaml
+  coverage-report:
+    needs: "ci"
+    uses: "glpi-project/plugin-ci-workflows/.github/workflows/coverage-report.yml@v1"
+    with:
+      plugin-key: "myplugin"
+```
+
+> **Note:** For base branch comparison to work, the CI workflow must run on every push to the default branch so that an up-to-date coverage artifact is always available.
+> 
+> A scheduled CI run (e.g., daily cron) is also recommended to ensure the artifact is regenerated before it expires.
+
 ## Generate CI matrix
 
 This workflow can be used to generate a matrix that contains the default PHP/SQL versions that are supported by the target GLPI version.
-You can use it in combination with the `Continuous Integration` workflow, as shown in the example below.
+You can use it in combination with the `Continuous Integration` and the `Coverage report` workflows, as shown in the example below.
 
 ```yaml
 name: "Continuous integration"
@@ -114,4 +177,11 @@ jobs:
       glpi-version: "${{ matrix.glpi-version }}"
       php-version: "${{ matrix.php-version }}"
       db-image: "${{ matrix.db-image }}"
+
+  coverage-report:
+    if: github.event_name == 'pull_request'
+    needs: "ci"
+    uses: "glpi-project/plugin-ci-workflows/.github/workflows/coverage-report.yml@v1"
+    with:
+      plugin-key: "myplugin"
 ```

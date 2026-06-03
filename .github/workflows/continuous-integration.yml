@@ -69,6 +69,32 @@ jobs:
         uses: "actions/checkout@v6"
         with:
           path: "${{ inputs.plugin-key }}"
+      - name: "Detect coverage configuration"
+        id: "coverage-config"
+        # Use default `bash` shell with `github-actions-runner` user
+        shell: "bash"
+        working-directory: "${{ github.workspace }}/${{ inputs.plugin-key }}"
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.base_ref }}" != "${{ github.event.repository.default_branch }}" ]]; then
+            echo "coverage-enabled=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ Code coverage is disabled for pull requests targeting non-default branch (${{ github.base_ref }})."
+            exit 0
+          fi
+
+          CONFIG_FILE=".glpi-coverage.json"
+          if [[ -f "$CONFIG_FILE" ]]; then
+            ENABLED=$(jq -r '.enabled // true' "$CONFIG_FILE")
+            if [[ "$ENABLED" != "true" ]]; then
+              echo "coverage-enabled=false" >> $GITHUB_OUTPUT
+              echo "ℹ️ Code coverage is disabled via $CONFIG_FILE"
+              exit 0
+            fi
+            echo "coverage-enabled=true" >> $GITHUB_OUTPUT
+          else
+            echo "coverage-enabled=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ No $CONFIG_FILE found, code coverage is disabled."
+            exit 0
+          fi
       - name: "Execute init script"
         if: ${{ inputs.init-script != '' }}
         # Use default `bash` shell with `github-actions-runner` user
@@ -355,14 +381,40 @@ jobs:
         if: ${{ !cancelled() && hashFiles(format('{0}/phpunit.xml', inputs.plugin-key)) != '' }}
         run: |
           echo -e "\033[0;33mExecuting PHPUnit...\033[0m"
+          PHPUNIT_FLAGS="--colors=always"
+          PHP_FLAGS=""
+
+          if [[ "${{ steps.coverage-config.outputs.coverage-enabled }}" == "true" ]]; then
+            PHPUNIT_FLAGS="$PHPUNIT_FLAGS --coverage-text --coverage-cobertura=cobertura.xml --coverage-clover=clover.xml"
+            # pcov is installed in the image but disabled by default (pcov.enabled=0).
+            # Enabling it and scoping it to only the plugin. No need to run coverage on the rest of GLPI code.
+            PHP_FLAGS="-d pcov.enabled=1 -d pcov.directory=."
+          fi
+
           if [[ -f "vendor/bin/phpunit" ]]; then
-            vendor/bin/phpunit --colors=always
+            php $PHP_FLAGS vendor/bin/phpunit $PHPUNIT_FLAGS
           elif [[ -f "../../vendor/bin/phpunit" ]]; then
-            ../../vendor/bin/phpunit --colors=always
+            php $PHP_FLAGS ../../vendor/bin/phpunit $PHPUNIT_FLAGS
           else
             echo -e "\033[0;31mPHPUnit binary not found!\033[0m"
             exit 1
           fi
+      - name: "Fix coverage paths for IDE import"
+        if: ${{ !cancelled() && steps.coverage-config.outputs.coverage-enabled == 'true' }}
+        run: |
+          echo "Sanitizing paths in clover.xml..."
+          sed -i 's|/var/www/glpi/plugins/${{ inputs.plugin-key }}/|plugins/${{ inputs.plugin-key }}/|g' clover.xml
+      - name: "Upload coverage report"
+        uses: "actions/upload-artifact@v6"
+        if: ${{ !cancelled() && steps.coverage-config.outputs.coverage-enabled == 'true' }}
+        with:
+          name: "coverage-report"
+          path: |
+            /var/www/glpi/plugins/${{ inputs.plugin-key }}/cobertura.xml
+            /var/www/glpi/plugins/${{ inputs.plugin-key }}/clover.xml
+            /var/www/glpi/plugins/${{ inputs.plugin-key }}/.glpi-coverage.json
+          include-hidden-files: true
+          overwrite: true
       - name: "Jest"
         if: ${{ !cancelled() && hashFiles(format('{0}/jest.config.js', inputs.plugin-key)) != '' }}
         run: |
