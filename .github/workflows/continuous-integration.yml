@@ -229,7 +229,7 @@ jobs:
           new_download_urls=$(curl -s -H "Authorization: token $GH_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
             | jq -r --arg k "$PLUGIN_KEY" '[.[] | select(.filename == "plugin.xml" or .filename == ($k + ".xml")) | .patch // ""] | join("\n")' \
-            | grep '^+' | grep '<download_url>' | grep -oP 'https?://[^\s<>"]+' | sort -u)
+            | grep '^+' | grep '<download_url>' | grep -oP 'https?://[^\s<>"]+' | sort -u || true)
           echo -e "\033[0;33mChecking URLs in XML manifest files...\033[0m"
           HAS_FAILURE='false'
           for xml_file in "/var/www/glpi/plugins/$PLUGIN_KEY/plugin.xml" "/var/www/glpi/plugins/$PLUGIN_KEY/${PLUGIN_KEY}.xml"; do
@@ -245,7 +245,7 @@ jobs:
                 echo "❌ $url ($status)"
                 HAS_FAILURE='true'
               fi
-            done < <(grep -oP 'https?://[^\s<>"]+' "$xml_file" | sort -u)
+            done < <(grep -oP 'https?://[^\s<>"()]+' "$xml_file" | sort -u)
           done
           if [[ "$HAS_FAILURE" == 'true' ]]; then
             echo -e "\033[0;31mSome URLs are invalid or unreachable.\033[0m"
